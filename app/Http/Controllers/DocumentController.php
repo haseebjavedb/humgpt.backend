@@ -25,16 +25,70 @@ use Smalot\PdfParser\Parser;
 use Illuminate\Support\Str;
 use carbon\Carbon;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 
 
 class DocumentController extends Controller
+
+
+
+
 {
-    private $api_Key = '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';
+
+    public function getApiKey()
+    {
+        try {
+            $apiKey = DB::table('api_keys')->value('api_key');
+
+            if ($apiKey) {
+                return $apiKey;
+            } else {
+                throw new \Exception('API key not found');
+            }
+        } catch (\Exception $e) {
+            // Log the error for debugging
+            Log::error('Error fetching API key: ' . $e->getMessage());
+
+            return null; // or handle the error appropriately
+        }
+    }
+
+    private $api_Key; // Declare api_Key property
+
+    public function __construct()
+    {
+        $this->api_Key = $this->getApiKey(); // Initialize api_Key in the constructor
+    }
+    
+   
+    
+    public function getModel()
+    {
+        try {
+            $model = DB::table('api_keys')->value('model');
+
+            if ($model) {
+                return $model;
+            } else {
+                throw new \Exception('Model not found');
+            }
+        } catch (\Exception $e) {
+            // Log the error for debugging
+            Log::error('Error fetching model: ' . $e->getMessage());
+
+            return null; // or handle the error appropriately
+        }
+    } 
+
 
     public function uploadDoc(Request $request)
     { { // Validate input
+         $model = $this->getModel();
 
+            if ( !$model) {
+                return response()->json(['error' => 'API key or model not found'], 404);
+            }
 
             $userId = Auth::id();
             $UserInput = $request->UserInput;
@@ -104,7 +158,7 @@ class DocumentController extends Controller
             // Initialize the Guzzle HTTP client
             $client = new Client();
             $prompt =   $UserInput;
-            $response = new StreamedResponse(function () use ($client, $prompt, $role, &$chat, $userId, $history) {
+            $response = new StreamedResponse(function () use ($client, $prompt, $role, &$chat, $userId, $history, $model) {
                 $message = "";
                 // Make a POST request to the GPT API
                 $res = $client->post('https://api.openai.com/v1/chat/completions', [
@@ -113,7 +167,7 @@ class DocumentController extends Controller
                         'Content-Type' => 'application/json',
                     ],
                     'json' => [
-                        'model' => "gpt-4-1106-preview",
+                        'model' =>  $model,
                         'messages' => $history,
                         'temperature' => 1,
                         'stream' => true,

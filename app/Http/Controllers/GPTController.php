@@ -16,10 +16,40 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Auth;
 use carbon\Carbon;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 class GPTController extends Controller
+
+
 {
-    private $api_Key = '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';
+
+ 
+
+
+    public function getApiKey()
+    {
+        try {
+            $apiKey = DB::table('api_keys')->value('api_key');
+
+            if ($apiKey) {
+                return $apiKey;
+            } else {
+                throw new \Exception('API key not found');
+            }
+        } catch (\Exception $e) {
+            // Log the error for debugging
+            Log::error('Error fetching API key: ' . $e->getMessage());
+
+            return null; // or handle the error appropriately
+        }
+    }
+
+    private $api_Key; // Declare api_Key property
+
+    public function __construct()
+    {
+        $this->api_Key = $this->getApiKey(); // Initialize api_Key in the constructor
+    }
 
     public function getIndexes($string, $character){
         $offset = 0;
@@ -343,97 +373,106 @@ class GPTController extends Controller
         return $response;
     }
 
-    public function firstResponse(Request $request){
+   
+
+    public function getModel()
+    {
         try {
+            $model = DB::table('api_keys')->value('model');
+
+            if ($model) {
+                return $model;
+            } else {
+                throw new \Exception('Model not found');
+            }
+        } catch (\Exception $e) {
+            // Log the error for debugging
+            Log::error('Error fetching model: ' . $e->getMessage());
+
+            return null; // or handle the error appropriately
+        }
+    }
+
+    public function firstResponse(Request $request)
+    {
+        try {
+            $apiKeys = $this->getApiKey();
+
+            $model = $this->getModel();
+
+            if (!$apiKeys || !$model) {
+                return response()->json(['error' => 'API key or model not found'], 404);
+            }
+
             $chatid = $request->chatid;
             $userId = Auth::id();
             $chat = Chat::where('chatid', $chatid)->first();
             $user = User::find($userId);
 
             if (!$chat) {
-                // Handle the case where chat is not found
                 return response()->json(["message" => "Chat not found"], 404);
             }
 
-            // Convert subscribed_date and expiration_date to Carbon instances
             $subscribedDate = Carbon::parse($user->subscribed_date);
             $expirationDate = Carbon::parse($user->expire_date);
 
-            if(($user->no_words <= $user->used_words) || ($subscribedDate->gt($expirationDate))){
-                return response()->json(['message'=> 'Your plan has expired. Kindly subscribe to continue using the service.','code' => 503], 503);
+            if (($user->no_words <= $user->used_words) || ($subscribedDate->gt($expirationDate))) {
+                return response()->json(['message' => 'Your plan has expired. Kindly subscribe to continue using the service.', 'code' => 503], 503);
             }
-    
-          
-    
+
             $answers = Answer::with('question')->where('chat_id', $chat->id)->get();
             $ques = [];
             $prompt_question_id = 0;
-    
-            foreach($answers as $answer) {
-                if(isset($answer->question)){
+
+            foreach ($answers as $answer) {
+                if (isset($answer->question)) {
                     $prompt_question_id = $answer->question->prompt_question_id;
                     $ques[$answer->question->key] = $answer->answer;
                 }
             }
-    
+
             $prompt_obj = Prompt::where('prompt_question_id', $prompt_question_id)->first();
             $input = $prompt_obj ? $prompt_obj->prompt : '';
-    
-            foreach($ques as $key => $value){
+
+            foreach ($ques as $key => $value) {
                 $placeholderWithoutSpaces = '{' . $key . '}';
                 $placeholderWithSpaces = '{ ' . $key . ' }';
                 $input = str_replace($placeholderWithoutSpaces, $value, $input);
                 $input = str_replace($placeholderWithSpaces, $value, $input);
             }
-    
+
             $gpt_role = GptRole::where('prompt_question_id', $prompt_question_id)->first();
             $prompt = "";
             $role = "";
-            if($gpt_role){
+            if ($gpt_role) {
                 $role = $gpt_role->role;
-                // Fetch the GPT instructions associated with the GPT role
                 $gpt_instructions = GptInstruction::where('gpt_role_id', $gpt_role->id)->get();
-                
-                // Initialize the prompt with the Instructions tag
+
                 $prompt .= "<Instructions>";
-                
-                // Append each GPT instruction to the prompt
-                foreach($gpt_instructions as $gpt_instruction){
+
+                foreach ($gpt_instructions as $gpt_instruction) {
                     $prompt .= "$gpt_instruction->instruction \n";
                 }
-                
-                // Close the Instructions tag and append the user input
+
                 $prompt .= "</Instructions>\n\n";
-            }else{
+            } else {
                 $role = "You are a helpful assistant";
             }
-            
+
             $prompt .= $input;
 
             $client = new Client();
 
-            $msg = new Message();
-            $msg->user_id = $userId;
-            $msg->chat_id = $chat->id;
-            $msg->message = $prompt;
-            $msg->is_bot = 0;
-            $msg->is_hidden = 1;
-            $msg->is_included = 1;
-            $msg->save();
-
-            // $message = "";
-
-            // Create a new streamed response
-            $response = new StreamedResponse(function() use ($client, $prompt, $role, &$chat, $userId) {
+            $response = new StreamedResponse(function () use ($client, $prompt, $role, &$chat, $userId, $apiKeys, $model) {
                 $message = "";
-                // Make a POST request to the GPT API
+
                 $res = $client->post('https://api.openai.com/v1/chat/completions', [
                     'headers' => [
-                        'Authorization' => "Bearer " . $this->api_Key,
+                        'Authorization' => "Bearer " . $apiKeys,
                         'Content-Type' => 'application/json',
                     ],
                     'json' => [
-                        'model' => "gpt-4-1106-preview",
+                        'model' => $model,
                         'messages' => [
                             [
                                 'role' => 'system',
@@ -450,7 +489,7 @@ class GPTController extends Controller
                     'stream' => true,
                 ]);
                 $buffer = '';
-                // Read the response from the GPT API
+
                 while (!$res->getBody()->eof()) {
                     $buffer .= $res->getBody()->read(1024);
                     $string = '';
@@ -458,25 +497,24 @@ class GPTController extends Controller
                         $json = substr($buffer, 0, $endOfJson);
                         $buffer = substr($buffer, $endOfJson + 1);
                         $data = $json;
-                        if($json){
+                        if ($json) {
                             $output = $this->responseDecode($json);
                             $string .= $output;
                         }
                     }
-                    // Output the response
                     $message .= $string;
                     echo $string;
                     ob_flush();
                     flush();
                     $userObj = User::find($userId);
-                $used = $userObj->used_words;
-                $used += str_word_count($string);
-                $userObj->used_words = strval($used);
-                $userObj->save();
+                    $used = $userObj->used_words;
+                    $used += str_word_count($string);
+                    $userObj->used_words = strval($used);
+                    $userObj->save();
                 }
                 $chat->chat_message = $message;
                 $chat->save();
-    
+
                 $msg = new Message();
                 $msg->user_id = $userId;
                 $msg->chat_id = $chat->id;
@@ -486,16 +524,19 @@ class GPTController extends Controller
                 $msg->is_included = 1;
                 $msg->save();
             });
-            
-            // Return the response
+
             return $response;
         } catch (\Exception $e) {
-            return response()->json(["message" => "Unexpected Error! " . $e->getMessage()], 422);
+            return response()->json(["message" => "Unexpected Error! " . $e->getMessage()], 500);
         }
     }
 
+   
+
+
     
     public function gptResponse(Request $request){
+        $model = $this->getModel();
         $chatid = $request->chatid;
         $chat = Chat::where('chatid', $chatid)->first();
         $input = $request->input;
@@ -514,9 +555,10 @@ class GPTController extends Controller
             $subscribedDate = Carbon::parse($user->subscribed_date);
             $expirationDate = Carbon::parse($user->expire_date);
 
-            if(($user->no_words <= $user->used_words) || ($subscribedDate->gt($expirationDate))){
-                return response()->json(['message'=> 'Your plan has expired. Kindly subscribe to continue using the service.','code' => 503], 503);
+            if (($user->no_words <= $user->used_words) || ($subscribedDate->gt($expirationDate))) {
+                return response()->json(['message' => 'Your plan has expired. Kindly subscribe to continue using the service.', 'code' => 503], 503);
             }
+
 
         $messages = Message::where('chat_id', $chat->id)->get();
         $history = [];
@@ -541,7 +583,7 @@ class GPTController extends Controller
         }
         $client = new Client();
         $prompt = $input;
-        $response = new StreamedResponse(function() use ($client, $prompt, $role, &$chat, $userId, $history) {
+        $response = new StreamedResponse(function() use ($client, $prompt, $role, &$chat, $userId, $history, $model) {
             $message = "";
             // Make a POST request to the GPT API
             $res = $client->post('https://api.openai.com/v1/chat/completions', [
@@ -550,7 +592,7 @@ class GPTController extends Controller
                     'Content-Type' => 'application/json',
                 ],
                 'json' => [
-                    'model' => "gpt-4-1106-preview",
+                    'model' => $model,
                     'messages' => $history,
                     'temperature' => 1,
                     'stream' => true,

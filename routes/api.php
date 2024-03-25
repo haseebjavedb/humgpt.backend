@@ -37,7 +37,7 @@ Route::prefix('auth')->group(function () {
 Route::get('google', [AuthController::class, 'redirectToGoogle'])->name('auth.google');
 
 // Route for Google to callback after user has authenticated
-Route::get('google/callback', [AuthController::class, 'handleGoogleCallback']);
+Route::post('google/callback', [AuthController::class, 'handleGoogleCallback']);
 
 // Assuming you want to add a POST route for handling the token from the frontend
 Route::post('google/token', [AuthController::class, 'handleGoogleToken']);
@@ -156,6 +156,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('get', [AdminController::class, 'dashboardInfo']);
         Route::get('chat/all', [AdminController::class, 'allChats']);
         Route::get('chat/user/{user_id}', [AdminController::class, 'singleChat']);
+        Route::post('/api_key', [AdminController::class, 'store']);
+          Route::get('/getApiKey', [AdminController::class, 'getApiKey']);
     });
     Route::prefix('plans')->group(function () {
         Route::post('save', [PricingPlanController::class, 'savePlan']);

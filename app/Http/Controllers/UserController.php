@@ -124,13 +124,15 @@ class UserController extends Controller
 
     public function Delete(string $id)
     {
-        $user = User::find($id)->delete();
+        $user = User::find($id);
         if (!$user) {
-            return response()->json(["message" => "User not Found"], 200);
-        } else {
-            return response()->json(["message" => "Deleted Successfully"], 200);
+            return response()->json(["message" => "User not Found"], 404);
         }
+    
+        $user->delete();
+        return response()->json(["message" => "Deleted Successfully"], 200);
     }
+    
 
     public function Plans(Request $request, string $id)
     {

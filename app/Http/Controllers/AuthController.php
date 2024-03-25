@@ -201,7 +201,7 @@ class AuthController extends Controller
             
         } catch (\Exception $e) {
             // Log the exception for debugging
-            Log::error($e);
+            // Log::error($e);
     
             return redirect('/login')->withErrors('Something went wrong or the user has denied access.');
         }
@@ -227,31 +227,39 @@ class AuthController extends Controller
     public function googleLogin(Request $request)
     {
         $data = $request->only(['name', 'email', 'googleId']);
-    
-       
-        $user = User::updateOrCreate(
-            ['google_id' => $data['googleId']],
-            [
-                'name' => $data['name'],
-                'email' => $data['email'],
-                'password' => bcrypt('default_password'), // Set default password here
-                'email_verified_at' => Carbon::now()
-            ]
-        );
-    
-        // Explicitly save the user model to update email_verified_at
-        $user->save();
-    
-        // Generate a token for the user
-        $token = $user->createToken('user_token')->plainTextToken;
-    
-        // Return a response indicating successful login
-        return response()->json([
-            'message' => 'Google login successful',
-            'user' => $user,
-            'token' => $token,
-            'needs_verification' => false // Since the user is verified, set this to false
-        ]);
+        
+        // Check if the 'googleId' key exists in the $data array
+        if (isset($data['googleId'])) {
+            $user = User::updateOrCreate(
+                ['google_id' => $data['googleId']],
+                [
+                    'name' => $data['name'],
+                    'email' => $data['email'],
+                    'password' => bcrypt('default_password'), // Set default password here
+                    'email_verified_at' => Carbon::now()
+                ]
+            );
+            
+            // Explicitly save the user model to update email_verified_at
+            $user->save();
+            
+            // Generate a token for the user
+            $token = $user->createToken('user_token')->plainTextToken;
+            
+            // Return a response indicating successful login
+            return response()->json([
+                'message' => 'Google login successful',
+                'user' => $user,
+                'token' => $token,
+                'needs_verification' => false // Since the user is verified, set this to false
+            ]);
+        } else {
+            // Handle the case where 'googleId' key is missing in the incoming data
+            return response()->json([
+                'message' => 'Google login failed: GoogleId missing',
+            ], 400); // Return 400 Bad Request status code
+        }
     }
+    
 
 }
